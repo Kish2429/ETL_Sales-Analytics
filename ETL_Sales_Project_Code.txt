@@ -1,0 +1,139 @@
+import numpy as np
+import pandas as pd
+from sqlalchemy import create_engine
+import pymysql
+
+engine= create_engine("mysql+pymysql://root:password@username/database")
+
+csv_path={
+    'Customer': 'Customer.csv',
+    'Employee': 'Employee.csv',
+    'OrderDetails': 'OrderDetails.csv',
+    'Orders': 'Orders.csv',
+    'Product': 'Product.csv',
+    'Region': 'Region.csv',
+    'Warehouse': 'Warehouse.csv'
+}
+
+**Extract**
+
+def extract_data():
+    DFS= {name: pd.read_csv(path) for name, path in csv_path.items()}
+    return DFS
+
+# This dictionary's Keys is used in dropping rows of primary key's column that has NaN. 
+primary_keys = {
+    'Customer': ['CustomerID'],
+    'Employee': ['EmployeeID'],
+    'Product': ['ProductID'],
+    'Orders': ['OrderID'],
+    'OrderDetails': ['OrderID', 'ProductID'],  # Composite key
+    'Region': ['RegionID'],
+    'Warehouse': ['WarehouseID']
+}
+
+**Transform**
+
+def transformation(DFS):
+    DFS["Orders"]["OrderDate"] = pd.to_datetime(DFS["Orders"]["OrderDate"], format='%d-%m-%y')
+    DFS["Employee"]["EmployeeHireDate"] = pd.to_datetime(DFS["Employee"]["EmployeeHireDate"], format='%d-%m-%y')
+    DFS["OrderDetails"]["Totalamount"] = DFS["OrderDetails"]['OrderItemQuantity'] * DFS["OrderDetails"]['PerUnitPrice']
+    DFS["OrderDetails"].insert(4, "Totalamount", DFS['OrderDetails'].pop('Totalamount'))
+    DFS["OrderDetails"].drop(["OrderDetailsID"], axis=1, inplace=True)
+
+    for tabName, pk_col in primary_keys.items():
+        before = len(DFS[tabName]) #Number of rows in the table before dropping
+        DFS[tabName].dropna(subset=pk_col, inplace=True)
+        after = len(DFS[tabName]) #Number of rows in the table after dropping
+        # print(f"{tabName}: Dropped {before - after} rows due to NaN in primary key(s): {pk_col}")
+
+   
+    for tab_name, df in DFS.items():
+        for col in df.columns:
+            if df[col].dtypes == object and df[col].isna().any():
+                df[col].fillna("Unknown", inplace =True)
+                # print("Filled for Object")
+            elif pd.api.types.is_numeric_dtype(df[col]) and df[col].isna().any():
+                df[col].fillna(0, inplace =True)
+                # print("Filled for Numericals")
+            elif pd.api.types.is_datetime64_any_dtype(df[col]) and df[col].isna().any():
+                df[col].fillna(pd.Timestamp("1900-01-01"), inplace =True)
+                # print("Filled for Datetime")
+            else:
+                print("No NaN")
+
+    # ETL Load Order (Dimension and Fact Tables)
+    tables = {
+        "dim_region": DFS['Region'],
+        "dim_warehouse": DFS['Warehouse'],
+        "dim_customer": DFS['Customer'],
+        "dim_product": DFS['Product'],
+        "dim_employee": DFS['Employee'],
+        "dim_orders": DFS['Orders'],
+        "fact_sales": DFS['OrderDetails']
+    }     
+    
+    return tables
+    
+
+**Duplicate removal using PK**
+
+# This dictionary's Keys (table names) is mapped/named based on the names from "tables" dict in def transformation function
+primary_keys_rem_dup = {
+    "dim_region": ['RegionID'],
+    "dim_warehouse": ['WarehouseID'],
+    "dim_customer": ['CustomerID'],
+    "dim_product": ['ProductID'],
+    "dim_employee": ['EmployeeID'],
+    "dim_orders": ['OrderID'],
+    "fact_sales": ['OrderID','ProductID'] #Composite Primary Key
+}
+
+def remove_duplicates(tables):
+    Updated_tables={}
+    
+    for table_name, DFS in tables.items():
+        # Fetch only the primary key columns from SQL table
+        pk_cols_list=primary_keys_rem_dup.get(table_name)
+        # Optional in-case
+        # if not pk_cols_list:
+        #     print(f"No primary key defined for {table_name}, skipping duplicate check.")
+        #     updated_tables[table_name] = df
+        #     continue
+
+        # Converts the primary key list into a comma-separated string usin ','.join for use in the SQL query.
+        pk_cols_str= ','.join(pk_cols_list)
+        query = f"Select {pk_cols_str} from {table_name}" # Queries the existing primary key values from the SQL table.
+        DFS_exists = pd.read_sql(query, engine)  #Loads the result into a DataFrame called df_exists.
+
+        # Find rows in df that are not in df_exists
+        DFS_combined=DFS.merge(DFS_exists, on=pk_cols_list, how= "left", indicator = True)
+        
+        # Filter the merged DataFrame to keep only new rows (left_only) and Remove the _merge column.
+        DFS_new= DFS_combined[DFS_combined["_merge"] == "left_only"].drop(columns=["_merge"])
+        # print(f"{table_name}: {len(DFS) - len(DFS_new)} duplicates removed. {len(DFS_new)} new rows added.")
+        if (len(DFS) - len(DFS_new)) == len(DFS):
+            print(f"No duplicates in the {table_name}")
+        else:
+            print(f"{len(DFS) - len(DFS_new)} duplicates is removed. {len(DFS_new)} new rows added.")
+
+        Updated_tables[table_name]= DFS_new # Stores the cleaned DataFrame in the Updated_tables dictionary.
+        
+    return Updated_tables
+
+
+**Load**
+
+def load_to_SQL(Updated_tables):
+    with engine.begin() as conn:
+        for table_name, DFS in Updated_tables.items():
+            print(f"Loading {table_name}")
+            DFS.to_sql(name=table_name, con=conn, if_exists='append', index=False)
+
+
+if __name__ == "__main__": #Only run this block of code if this file is being run directly (not imported).
+    extracted_data = extract_data()
+    transformed_data = transformation(extracted_data)
+    clean_data=remove_duplicates(transformed_data)
+    load_to_SQL(clean_data)
+
