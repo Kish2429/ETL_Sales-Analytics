@@ -1,0 +1,271 @@
+create database Name;
+use Name;
+-- drop database Name;
+
+-- Star Schema is used for this Name project
+
+-- Table creation for Dimension tables
+
+delimiter //
+
+create procedure CustomerTableDDL()
+begin
+	create table if not exists Dim_Customer (
+	CustomerID int primary key,
+	CustomerName varchar(50),
+	CustomerEmail varchar(50),
+	CustomerPhone varchar(20),
+	CustomerAddress text,
+	CustomerCreditLimit int,
+        RegionID int
+	);
+end;
+
+//
+delimiter ;
+
+delimiter //
+
+create procedure EmployeeTableDDL()
+begin
+	create table Dim_Employee (
+	EmployeeID int Primary key,
+	EmployeeName varchar(50),
+	EmployeeEmail varchar(50),
+	EmployeePhone varchar(50),
+	EmployeeHireDate date,
+	EmployeeJobTitle varchar(50),
+	WarehouseID int
+    );    
+end;
+
+//
+delimiter ;
+
+delimiter //
+
+create procedure ProductTableDDL()
+begin
+	create table Dim_Product (
+	ProductID varchar(10) primary key,
+	ProductName varchar(100),
+	CategoryName varchar(50),
+	ProductDescription varchar(100),
+	ProductStandardCost float,
+	ProductListPrice float,
+	Profit float
+	);
+end;
+
+//
+delimiter ;
+
+delimiter //
+create procedure RegionTableDDL()
+begin
+	create table Dim_Region (
+	RegionID int primary key,
+	RegionName varchar (30),
+	CountryName varchar(30),
+	State varchar (30),
+	City varchar(30),
+	PostalCode varchar(20)
+	);
+end;
+
+//
+delimiter ;
+
+delimiter //
+create procedure WarehouseTableDDL()
+begin
+	create table Dim_Warehouse (
+	WarehouseID int primary key,
+	WarehouseName varchar (30),
+	WarehouseAddress text,
+	RegionID int
+	);
+end;
+
+//
+delimiter ;
+
+delimiter //
+create procedure OrdersTableDDL()
+begin
+        create table Dim_Orders (
+	OrderID INT PRIMARY KEY,
+	OrderDate DATE,
+	CustomerID INT
+	);
+end;
+
+//
+delimiter ;
+
+-- Table creation for Fact tables
+
+delimiter //
+create procedure FactTableDDL()
+begin
+	CREATE TABLE Fact_Sales (
+	ProductID VARCHAR(10),
+	OrderItemQuantity INT,
+	PerUnitPrice float,
+	Totalamount float,
+	OrderStatus VARCHAR(50),
+	OrderID INT,
+	PRIMARY KEY (OrderID, ProductID)
+	);
+end;
+
+// 
+delimiter ;
+
+-- Foreign keys table with respective to their primary keys table
+delimiter //
+create procedure FK_Constraints()
+begin
+	alter table dim_customer add constraint fk2_RID foreign key (RegionID) references DIM_Region (RegionID);
+	alter table dim_employee add constraint fk_WID foreign key (WarehouseID) references Dim_Warehouse (WarehouseID);
+	alter table dim_warehouse add constraint fk_RID foreign key (RegionID) references Dim_Region (RegionID);
+	alter table Dim_Orders add constraint fk_CID foreign key (CustomerID) references Dim_Customer (CustomerID);
+	alter table Fact_sales add constraint fk_OID foreign key (OrderID) references Dim_Orders (OrderID);
+	alter table Fact_sales add constraint fk_PID foreign key (ProductID) references Dim_Product (ProductID);
+end;
+//
+delimiter ;
+
+-- Foreign Keys information_schema
+delimiter //
+create procedure GetForeignKeys()
+begin
+	select table_name as "FK_Table",
+    column_name as "FK_Column",
+    constraint_name as "Constraint",
+    referenced_table_name as "PK_Table",
+    referenced_column_name as "PK_Column"
+    from
+		information_schema.key_column_usage
+	where
+		table_schema = "Name"
+        and referenced_table_name is not null;
+end;
+//
+delimiter ;
+
+-- Table Creation stored procedures
+
+call CustomerTableDDL();
+call EmployeeTableDDL();
+call ProductTableDDL();
+call RegionTableDDL();
+call WarehouseTableDDL();
+call OrdersTableDDL();
+call FactTableDDL();
+
+-- Foreign Key Constraints Stored Procedure
+call FK_Constraints();
+
+-- Foreign keys information Stored Procedure
+call GetForeignKeys();
+
+-- Dropping Tables if in case
+
+--  drop table fact_sales, Dim_customer, Dim_Orders, Dim_Employee, Dim_Product, Dim_Region, Dim_Warehouse;
+		-- drop table Dim_Customer;
+		-- drop table Dim_Employee;
+		-- drop table Dim_Product;
+		-- drop table Dim_Region;
+		-- drop table Dim_Warehouse;
+		-- drop table Dim_Orders;
+		-- drop table Fact_Sales;
+
+-- Select Tables
+
+select * from dim_customer;
+select count(*) from dim_customer;
+select * from dim_employee;
+select * from dim_product;
+select * from dim_region;
+select * from dim_warehouse;
+select * from dim_orders;
+select * from fact_sales;
+
+-- Table Structure (describe)
+
+describe Dim_Customer;
+describe Dim_Employee;
+describe Dim_Product;
+describe Dim_Region;
+describe Dim_Warehouse;
+describe Dim_Orders;
+describe Fact_Sales;
+
+-- Show Create Table structure - display the full SQL statement that was used to create the table
+
+SHOW CREATE TABLE Dim_Customer;
+SHOW CREATE TABLE Dim_Employee;
+SHOW CREATE TABLE Dim_Product;
+SHOW CREATE TABLE Dim_Region;
+SHOW CREATE TABLE Dim_Warehouse;
+SHOW CREATE TABLE Dim_Orders;
+SHOW CREATE TABLE Fact_Sales;
+
+-- Select Tables
+
+select * from dim_customer;
+select count(*) from dim_customer;
+select * from dim_employee;
+select * from dim_product;
+select * from dim_region;
+select * from dim_warehouse;
+select * from dim_orders;
+select * from fact_sales;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+-- ETL Load Order (Dimension and Fact Tables)
+		-- Dim_Region
+		-- Independent dimension — no foreign keys.
+		-- Required for Dim_Warehouse.
+        
+		-- Dim_Warehouse
+		-- Depends on: Dim_Region (RegionID)
+		-- Required for Dim_Employee.
+        
+		-- Dim_Customer
+		-- Independent dimension — no foreign keys.
+		-- Required for Dim_Orders.
+        
+		-- Dim_Product
+		-- Independent dimension — no foreign keys.
+		-- Required for Fact_Sales.
+        
+		-- Dim_Employee
+		-- Depends on: Dim_Warehouse (WarehouseID)
+        
+		-- Dim_Orders
+		-- Depends on: Dim_Customer (CustomerID)
+		-- Required for Fact_Sales.
+        
+		-- Fact_Sales
+		-- Depends on:
+		-- Dim_Orders (OrderID)
+		-- Dim_Product (ProductID)
+
